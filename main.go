@@ -29,13 +29,13 @@ func checkerr(err error) {
 	}
 }
 
-func getIntegerFromDB(sqlx string, defval int) int {
+func getIntegerFromDB(sqlx string, defval int64) int64 {
 
 	rows, err := DBH.Query(sqlx)
 	checkerr(err)
 	defer rows.Close()
 	if rows.Next() {
-		var val int
+		var val int64
 		rows.Scan(&val)
 		return val
 	}

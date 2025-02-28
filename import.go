@@ -4,17 +4,28 @@ import (
 	_ "embed"
 	"encoding/json"
 	"fmt"
+	"math"
 	"net/http"
+	"time"
 )
 
 //go:embed rupert.js
 var script string
 
-const x = `{"filetype":"iba1000","asat":"2025-02-17T14:07","entrants":[{"EntrantID":14,"EntrantStatus":8,"Rider":{"First":"Kevin","Last":"Ansell","IBA":"","HasIBANumber":false,"RBL":"","Email":"kevin.ansell@icloud.com","Phone":"07753 856425","Address1":"7A Keens Lane","Address2":"","Town":"Chinnor","County":"Oxon","Postcode":"OX39 4PF","Country":"United Kingdom"},"Pillion":{"First":"","Last":"","IBA":"","HasIBANumber":false,"RBL":"","Email":"","Phone":"","Address1":"","Address2":"","Town":"","County":"","Postcode":"","Country":""},"NokName":"Benita Ansell","NokRelation":"Wife","NokPhone":"07955 926285","Bike":"Triumph Tiger 900 GT Pro","BikeReg":"KA59 KEV","Route":"C-SCW","OdoStart":"1","OdoFinish":"1012","OdoCounts":"14","StartTime":"2025-02-17T14:06","FinishTime":"2025-02-17T14:07","FundsRaised":{"EntryDonation":"25","SquiresCheque":"","SquiresCash":"","RBLRAccount":"","JustGivingAmt":"","JustGivingURL":""},"FreeCamping":"14","CertificateAvailable":"Y","CertificateDelivered":"N","Tshirt1":"L","Tshirt2":"no thanks","Patches":1,"EditMode":"","Notes":""}
-,{"EntrantID":16,"EntrantStatus":8,"Rider":{"First":"Andy","Last":"Millar","IBA":"","HasIBANumber":false,"RBL":"","Email":"longitude180@hotmail.com","Phone":"07983660086","Address1":"13 Beechtree Ave","Address2":"N/a","Town":"Marlow ","County":"Berkshire","Postcode":"SL73NH","Country":"United Kingdom"},"Pillion":{"First":"","Last":"","IBA":"","HasIBANumber":false,"RBL":"","Email":"","Phone":"","Address1":"","Address2":"","Town":"","County":"","Postcode":"","Country":""},"NokName":"Justine Millar","NokRelation":"Spouse","NokPhone":"+44 7852 406987","Bike":"Harley-Davidson FLSTC","BikeReg":"R942FJL","Route":"C-SCW","OdoStart":"1","OdoFinish":"10","OdoCounts":"16","StartTime":"2025-02-17T14:06","FinishTime":"2025-02-17T14:07","FundsRaised":{"EntryDonation":"50","SquiresCheque":"","SquiresCash":"","RBLRAccount":"","JustGivingAmt":"","JustGivingURL":""},"FreeCamping":"16","CertificateAvailable":"Y","CertificateDelivered":"N","Tshirt1":"no thanks","Tshirt2":"no thanks","Patches":1,"EditMode":"","Notes":""}
-,{"EntrantID":37,"EntrantStatus":8,"Rider":{"First":"Paul","Last":"Ball","IBA":"83799","HasIBANumber":true,"RBL":"","Email":"pdb2671@gmail.com","Phone":"07788631957","Address1":"9 Rodney Close","Address2":"Hinckley, Leicestershire","Town":"Hinckley","County":"Leicestershire","Postcode":"LE101PA","Country":"United Kingdom"},"Pillion":{"First":"","Last":"","IBA":"","HasIBANumber":false,"RBL":"","Email":"","Phone":"","Address1":"","Address2":"","Town":"","County":"","Postcode":"","Country":""},"NokName":"Lena Ball","NokRelation":"Wife","NokPhone":"07979231258","Bike":"BMW R1250RT","BikeReg":"T4PSD","Route":"F-500AC","OdoStart":"1","OdoFinish":"506","OdoCounts":"37","StartTime":"2025-02-17T14:06","FinishTime":"2025-02-17T14:07","FundsRaised":{"EntryDonation":"50","SquiresCheque":"","SquiresCash":"","RBLRAccount":"","JustGivingAmt":"","JustGivingURL":""},"FreeCamping":"37","CertificateAvailable":"Y","CertificateDelivered":"N","Tshirt1":"L","Tshirt2":"no thanks","Patches":1,"EditMode":"","Notes":""}
-,{"EntrantID":63,"EntrantStatus":8,"Rider":{"First":"Stephen","Last":"Allen","IBA":"","HasIBANumber":false,"RBL":"L","Email":"stevenotwet@gmail.com","Phone":"07795806426","Address1":"9 ","Address2":"Pentire Road","Town":"Torpoint","County":"Cornwall","Postcode":"PL112QZ","Country":"United Kingdom"},"Pillion":{"First":"","Last":"","IBA":"","HasIBANumber":false,"RBL":"","Email":"","Phone":"","Address1":"","Address2":"","Town":"","County":"","Postcode":"","Country":""},"NokName":"Michele Potter","NokRelation":"Girlfriend","NokPhone":"07716146127","Bike":"BMW 1200 GSA","BikeReg":"RV64TUO","Route":"A-NCW","OdoStart":"1","OdoFinish":"10","OdoCounts":"63","StartTime":"2025-02-17T14:06","FinishTime":"2025-02-17T14:07","FundsRaised":{"EntryDonation":"25","SquiresCheque":"","SquiresCash":"","RBLRAccount":"","JustGivingAmt":"","JustGivingURL":""},"FreeCamping":"63","CertificateAvailable":"Y","CertificateDelivered":"N","Tshirt1":"no thanks","Tshirt2":"no thanks","Patches":1,"EditMode":"","Notes":""}
-]}`
+type RBLR_Route struct {
+	Start    string
+	Via      string
+	Finish   string
+	RideName string
+	Miles    int
+}
+
+var RBLR_Routes = map[string]RBLR_Route{
+	"A-NCW": {"Squires cafe", "Berwick-upon-Tweed, Wick and Fort William", "Squires cafe", "RBLR1000-NC", 1006},
+	"B-NAC": {"Squires cafe", "Berwick-upon-Tweed, Wick and Fort William", "Squires cafe", "RBLR1000-NA", 1006},
+	"C-SCW": {"Squires cafe", "Bangor, Barnstaple, Andover and Lowestoft", "Squires cafe", "RBLR1000-SC", 1015},
+	"D-SAC": {"Squires cafe", "Bangor, Barnstaple, Andover and Lowestoft", "Squires cafe", "RBLR1000-SA", 1015},
+}
 
 type RBLR_Person = struct {
 	First        string
@@ -74,22 +85,58 @@ type RBLR_Dataset struct {
 	Entrants []RBLR_Entrant
 }
 
+type RBLR_Params struct {
+	Ridedate  string
+	EventDesc string
+}
+
+func calc_rblr_ridelength(starttime string, finishtime string) (int, int) {
+
+	const timefmt = "2006-01-02T15:04"
+
+	var timezone *time.Location
+
+	timezone, _ = time.LoadLocation("Europe/London")
+	ok := true
+	st, err := time.ParseInLocation(timefmt, starttime, timezone)
+	if err != nil {
+		ok = false
+	}
+	ft, err := time.ParseInLocation(timefmt, finishtime, timezone)
+	if err != nil {
+		ok = false
+	}
+
+	if !ok {
+		return 0, 0
+	}
+
+	hrs := int(math.Trunc(ft.Sub(st).Hours()))
+	mins := int(math.Trunc(ft.Sub(st).Minutes()))
+	mins = mins - (hrs * 60)
+	return hrs, mins
+
+}
+
 func import_rblr(w http.ResponseWriter, r *http.Request) {
 
 	if r.FormValue("json") == "" {
 		load_rblr(w, r)
 		return
 	}
-	saturday := r.FormValue("saturday")
-	if saturday == "" {
+	var rp RBLR_Params
+	rp.Ridedate = r.FormValue("saturday")
+	if rp.Ridedate == "" {
 		fmt.Fprint(w, `{"ok":false,"err":"No Saturday date supplied"}`)
 		return
 	}
+	rp.EventDesc = "RBLR 1000('" + rp.Ridedate[2:4] + ")"
 	entrants := parse_rblr(r)
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 
 	for _, e := range entrants {
-		fmt.Fprintf(w, `%v : %v, %v<br>`, e.EntrantID, e.Rider.Last, e.Rider.First)
+		fmt.Fprintf(w, `%v <br>`, e)
+		post_rblr_entrant_updates(e, rp)
 	}
 }
 
@@ -128,4 +175,124 @@ func parse_rblr(r *http.Request) []RBLR_Entrant {
 	checkerr(err)
 
 	return rblr.Entrants
+}
+
+// This is where database updates are executed for successful RBLR rides
+func post_rblr_entrant_updates(e RBLR_Entrant, rp RBLR_Params) {
+
+	post_rblr_person_updates(e, rp, false)
+	if e.Pillion.First != "" || e.Pillion.Last != "" || e.Pillion.IBA != "" {
+		post_rblr_person_updates(e, rp, true)
+	}
+
+}
+
+func post_rblr_person_updates(e RBLR_Entrant, rp RBLR_Params, isPillion bool) {
+
+	var riderid int64
+	var bikeid int64
+
+	// Unique IDs in the Rides database are not autogenerated, we must calculate and supply
+
+	p := e.Rider
+	pn := "N"
+	if isPillion {
+		p = e.Pillion
+		pn = "Y"
+	}
+	ridername := p.First + " " + p.Last
+	pa := p.Address1
+	if p.Address2 != "" {
+		pa += ", " + p.Address2
+	}
+	if p.Town != "" {
+		pa += ", " + p.Town
+	}
+	if p.County != "" {
+		pa += ", " + p.County
+	}
+	if p.IBA != "" {
+		riderid = getIntegerFromDB("SELECT riderid FROM riders WHERE IBA_Number="+p.IBA, 0)
+	}
+	if riderid == 0 {
+		riderid = getIntegerFromDB("SELECT riderid FROM riders WHERE Rider_Name='"+p.First+" "+p.Last+"'", 0)
+	}
+	if riderid == 0 { // Must create new record
+		riderid = getIntegerFromDB("SELECT max(riderid) FROM riders", 0) + 1
+		sqlx := "INSERT INTO riders (riderid,Rider_Name,IBA_Number,Postal_Address,Postcode,Country,Email,Phone,IsPillion,DateLastActive)"
+		sqlx += "VALUES(?,?,?,?,?,?,?,?,?,?)"
+		stmt, err := DBH.Prepare(sqlx)
+		checkerr(err)
+		defer stmt.Close()
+
+		res, err := stmt.Exec(riderid, ridername, p.IBA, pa, p.Postcode, p.Country, p.Email, p.Phone, pn, rp.Ridedate)
+		checkerr(err)
+		riderid, err = res.LastInsertId()
+		checkerr(err)
+		fmt.Printf("New rider inserted %v\n", riderid)
+	} else {
+		sqlx := "UPDATE riders SET DateLastActive=? WHERE riderid=?"
+		stmt, err := DBH.Prepare(sqlx)
+		checkerr(err)
+		defer stmt.Close()
+		_, err = stmt.Exec(rp.Ridedate, riderid)
+		checkerr(err)
+		fmt.Printf("Rider %v updated \n", riderid)
+	}
+	bikeid = getIntegerFromDB(fmt.Sprintf("SELECT bikeid FROM bikes WHERE riderid=%v AND Bike='%v' AND (ifnull(Registration,'')='%v' OR ifnull(Registration,'')='')", riderid, e.Bike, e.BikeReg), 0)
+
+	// Switch for bike odo is Y=kms, N=miles
+	km := "N"
+	if e.OdoCounts == "K" {
+		km = "Y"
+	}
+
+	if bikeid == 0 {
+		bikeid = getIntegerFromDB("SELECT max(bikeid) FROM bikes", 0) + 1
+		sqlx := "INSERT INTO bikes (bikeid,riderid,KmsOdo,Bike,Registration) VALUES(?,?,?,?,?)"
+		stmt, err := DBH.Prepare(sqlx)
+		checkerr(err)
+		defer stmt.Close()
+		_, err = stmt.Exec(bikeid, riderid, km, e.Bike, e.BikeReg)
+		checkerr(err)
+		fmt.Printf("New bike inserted %v\n", bikeid)
+	} else {
+		sqlx := "UPDATE bikes SET KmsOdo=?,Registration=? WHERE riderid=? AND bikeid=? AND ifnull(Registration,'')=''"
+		stmt, err := DBH.Prepare(sqlx)
+		checkerr(err)
+		defer stmt.Close()
+		_, err = stmt.Exec(km, e.BikeReg, riderid, bikeid)
+		checkerr(err)
+		fmt.Printf("Bike %v updated\n", bikeid)
+	}
+	rt, ok := RBLR_Routes[e.Route]
+	if !ok {
+		rt, _ = RBLR_Routes["A-NCW"]
+	}
+
+	dupecheck := fmt.Sprintf("SELECT NameOnCertificate FROM rides WHERE riderid=%v AND DateRideStart='%v' AND IBA_Ride='%v'", riderid, rp.Ridedate, rt.RideName)
+	x := getStringFromDB(dupecheck, "")
+	if x == ridername {
+		fmt.Println("Ride is duplicated")
+		return
+	}
+
+	uri := getIntegerFromDB("SELECT max(URI) FROM rides", 0) + 1
+	rideid := getIntegerFromDB("SELECT recid FROM ridenames WHERE IBA_Ride='"+rt.RideName+"'", 0)
+	sqlx := "INSERT INTO rides (URI,riderid,NameOnCertificate,DateRideStart,DateRideFinish,IBA_Ride,IsPillion,EventName,KmsOdo,TotalMiles,bikeid,StartPoint,FinishPoint,MidPoints,DateRcvd,RideVerifier,DateVerified,DateCertSent,IBA_RideID,DatePayRcvd,DatePayReq,ShowRoH,StartOdo,FinishOdo,TimeStart,TimeFinish,RideHours,RideMins,VerifierNotes)"
+	sqlx += "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)"
+	//fmt.Println(sqlx)
+	stmt, err := DBH.Prepare(sqlx)
+	checkerr(err)
+	//fmt.Println("All good")
+	defer stmt.Close()
+	hrs, mins := calc_rblr_ridelength(e.StartTime, e.FinishTime)
+	res, err := stmt.Exec(uri, riderid, ridername, rp.Ridedate, rp.Ridedate, rt.RideName, pn, rp.EventDesc, km, rt.Miles, bikeid, rt.Start, rt.Finish, rt.Via, rp.Ridedate, "RBLR", rp.Ridedate, rp.Ridedate, rideid, rp.Ridedate, rp.Ridedate, "Y", e.OdoStart, e.OdoFinish, e.StartTime, e.FinishTime, hrs, mins, e.Notes)
+	checkerr(err)
+	lix, err := res.LastInsertId()
+	checkerr(err)
+	n, err := res.RowsAffected()
+	checkerr(err)
+	fmt.Printf("Ride record result is %v,%v\n", lix, n)
+
 }
