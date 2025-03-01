@@ -1,16 +1,12 @@
 package main
 
 import (
-	_ "embed"
 	"encoding/json"
 	"fmt"
 	"math"
 	"net/http"
 	"time"
 )
-
-//go:embed rupert.js
-var script string
 
 type RBLR_Route struct {
 	Start    string
@@ -90,6 +86,18 @@ type RBLR_Params struct {
 	EventDesc string
 }
 
+type RBLR_Stats struct {
+	NewRiders   int
+	NewPillions int
+	NewRides    int
+	Ncw         int
+	Nac         int
+	Scw         int
+	Sac         int
+}
+
+var loadstats *RBLR_Stats
+
 func calc_rblr_ridelength(starttime string, finishtime string) (int, int) {
 
 	const timefmt = "2006-01-02T15:04"
@@ -134,33 +142,33 @@ func import_rblr(w http.ResponseWriter, r *http.Request) {
 	entrants := parse_rblr(r)
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 
+	fmt.Fprint(w, htmlheader)
+
+	fmt.Fprint(w, `<h1>Update IBAUK Rides database from RBLR1000 results</h1>`)
+
+	DBH.Exec("BEGIN")
+	defer DBH.Exec("COMMIT")
+	var stats RBLR_Stats
+
+	loadstats = &stats
+	fmt.Fprint(w, `<p>`)
 	for _, e := range entrants {
-		fmt.Fprintf(w, `%v <br>`, e)
+		fmt.Fprintf(w, `%v &nbsp; `, e.Rider.Last+",&nbsp;"+e.Rider.First)
 		post_rblr_entrant_updates(e, rp)
 	}
+	fmt.Fprintf(w, `</p><p><strong>%v</strong> rides added to the database</p>`, stats.NewRides)
+
+	fmt.Fprintf(w, `<p>Number of new riders <strong>%v</strong>, number of new pillions <strong>%v</strong></p>`, stats.NewRiders, stats.NewPillions)
+	fmt.Fprintf(w, `<p>NCW: <strong>%v</strong>&nbsp;  NAC: <strong>%v</strong>&nbsp;  SCW: <strong>%v</strong>&nbsp;  SAC: <strong>%v</strong>&nbsp;</p>`, stats.Ncw, stats.Nac, stats.Scw, stats.Sac)
 }
 
 func load_rblr(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 
-	fmt.Fprintf(w, `<script>%v</script>`, script)
-	fmt.Fprint(w, `<form action="/rblr" method="post" enctype="multipart/form-data" >`)
-	fmt.Fprint(w, `<input type="hidden" id="json" name="json">`)
+	fmt.Fprint(w, htmlheader)
 
-	fmt.Fprint(w, `<fieldset>`)
-	fmt.Fprint(w, `<label for="saturday">Date of Saturday (yyyy-mm-dd)</label> `)
-	fmt.Fprint(w, `<input type="date" id="saturday" name="saturday">`)
-	fmt.Fprint(w, `</fieldset>`)
-	fmt.Fprint(w, `<fieldset>`)
-	fmt.Fprint(w, `<label for="jsonfile">JSON file to upload</label> `)
-	fmt.Fprint(w, `<input id="jsonfile" name="jsonfile" type="file" accept=".json" onchange="enableImportLoad(this)">`)
-	fmt.Fprint(w, `</fieldset>`)
-
-	fmt.Fprint(w, `<input type="hidden" id="json" name="json" value="">`)
-
-	fmt.Fprint(w, `<input id="submitbutton" disabled type="submit" value="Submit">`)
-	fmt.Fprint(w, `</form>`)
+	fmt.Fprint(w, loadrblrform)
 
 }
 func parse_rblr(r *http.Request) []RBLR_Entrant {
@@ -230,6 +238,11 @@ func post_rblr_person_updates(e RBLR_Entrant, rp RBLR_Params, isPillion bool) {
 		riderid, err = res.LastInsertId()
 		checkerr(err)
 		fmt.Printf("New rider inserted %v\n", riderid)
+		if pn == "Y" {
+			loadstats.NewPillions++
+		} else {
+			loadstats.NewRiders++
+		}
 	} else {
 		sqlx := "UPDATE riders SET DateLastActive=? WHERE riderid=?"
 		stmt, err := DBH.Prepare(sqlx)
@@ -287,12 +300,18 @@ func post_rblr_person_updates(e RBLR_Entrant, rp RBLR_Params, isPillion bool) {
 	//fmt.Println("All good")
 	defer stmt.Close()
 	hrs, mins := calc_rblr_ridelength(e.StartTime, e.FinishTime)
-	res, err := stmt.Exec(uri, riderid, ridername, rp.Ridedate, rp.Ridedate, rt.RideName, pn, rp.EventDesc, km, rt.Miles, bikeid, rt.Start, rt.Finish, rt.Via, rp.Ridedate, "RBLR", rp.Ridedate, rp.Ridedate, rideid, rp.Ridedate, rp.Ridedate, "Y", e.OdoStart, e.OdoFinish, e.StartTime, e.FinishTime, hrs, mins, e.Notes)
+	_, err = stmt.Exec(uri, riderid, ridername, rp.Ridedate, rp.Ridedate, rt.RideName, pn, rp.EventDesc, km, rt.Miles, bikeid, rt.Start, rt.Finish, rt.Via, rp.Ridedate, "RBLR", rp.Ridedate, rp.Ridedate, rideid, rp.Ridedate, rp.Ridedate, "Y", e.OdoStart, e.OdoFinish, e.StartTime, e.FinishTime, hrs, mins, e.Notes)
 	checkerr(err)
-	lix, err := res.LastInsertId()
-	checkerr(err)
-	n, err := res.RowsAffected()
-	checkerr(err)
-	fmt.Printf("Ride record result is %v,%v\n", lix, n)
+	loadstats.NewRides++
+	switch e.Route {
+	case "A-NCW":
+		loadstats.Ncw++
+	case "B-NAC":
+		loadstats.Nac++
+	case "C-SCW":
+		loadstats.Scw++
+	case "D-SAC":
+		loadstats.Sac++
+	}
 
 }
