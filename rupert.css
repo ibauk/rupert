@@ -1,0 +1,38 @@
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+    font-family: Verdana, Geneva, Tahoma, sans-serif;
+    font-size: 14pt;
+  }
+
+  h1 {
+    text-align: center;
+    margin: 1em 1em 2em 1em;
+  }
+  p {
+    margin: 1em;
+  }
+  fieldset {
+    padding: 1em;
+    margin: 0 1em;
+  }
+
+  input[type='submit'] {
+    padding: 1em;
+    margin: 1em;
+  }
+  .hide {
+    display: none;
+  }
+  
+  @media print {
+    * {
+      background-color: white;
+      color: black;
+    }
+    .noprint {
+      display: none;
+    }
+  }
+  

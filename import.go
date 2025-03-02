@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math"
 	"net/http"
+	"strings"
 	"time"
 )
 
@@ -195,6 +196,28 @@ func post_rblr_entrant_updates(e RBLR_Entrant, rp RBLR_Params) {
 
 }
 
+func transform_rblr_address(p RBLR_Person) string {
+
+	// We want to store the address over multiple lines BUT
+	// SQLite can't handle escaped chars directly, only via
+	// its concatenate function which isn't handled correctly
+	// by Prepare/Exec handlers.
+	const nl = " || ',' || char(13) || "
+	pa := "'" + strings.TrimSpace(p.Address1) + "'"
+	if strings.TrimSpace(p.Address2) != "" {
+		pa += nl + "'" + strings.TrimSpace(p.Address2) + "'"
+	}
+	if strings.TrimSpace(p.Town) != "" {
+		pa += nl + "'" + strings.TrimSpace(p.Town) + "'"
+	}
+	if strings.TrimSpace(p.County) != "" {
+		pa += nl + "'" + strings.TrimSpace(p.County) + "'"
+	}
+
+	return pa
+
+}
+
 func post_rblr_person_updates(e RBLR_Entrant, rp RBLR_Params, isPillion bool) {
 
 	var riderid int64
@@ -209,18 +232,11 @@ func post_rblr_person_updates(e RBLR_Entrant, rp RBLR_Params, isPillion bool) {
 		pn = "Y"
 	}
 	ridername := p.First + " " + p.Last
-	pa := p.Address1
-	if p.Address2 != "" {
-		pa += ", " + p.Address2
-	}
-	if p.Town != "" {
-		pa += ", " + p.Town
-	}
-	if p.County != "" {
-		pa += ", " + p.County
-	}
-	if p.IBA != "" {
-		riderid = getIntegerFromDB("SELECT riderid FROM riders WHERE IBA_Number="+p.IBA, 0)
+
+	pa := transform_rblr_address(p)
+
+	if strings.TrimSpace(p.IBA) != "" {
+		riderid = getIntegerFromDB("SELECT riderid FROM riders WHERE IBA_Number='"+strings.TrimSpace(p.IBA)+"'", 0)
 	}
 	if riderid == 0 {
 		riderid = getIntegerFromDB("SELECT riderid FROM riders WHERE Rider_Name='"+p.First+" "+p.Last+"'", 0)
@@ -228,29 +244,23 @@ func post_rblr_person_updates(e RBLR_Entrant, rp RBLR_Params, isPillion bool) {
 	if riderid == 0 { // Must create new record
 		riderid = getIntegerFromDB("SELECT max(riderid) FROM riders", 0) + 1
 		sqlx := "INSERT INTO riders (riderid,Rider_Name,IBA_Number,Postal_Address,Postcode,Country,Email,Phone,IsPillion,DateLastActive)"
-		sqlx += "VALUES(?,?,?,?,?,?,?,?,?,?)"
-		stmt, err := DBH.Prepare(sqlx)
-		checkerr(err)
-		defer stmt.Close()
+		sqlx += "VALUES("
+		sqlx += fmt.Sprintf("%v,'%v','%v',%v,'%v','%v','%v','%v','%v','%v'", riderid, ridername, p.IBA, pa, p.Postcode, p.Country, p.Email, p.Phone, pn, rp.Ridedate)
+		sqlx += ")"
 
-		res, err := stmt.Exec(riderid, ridername, p.IBA, pa, p.Postcode, p.Country, p.Email, p.Phone, pn, rp.Ridedate)
+		//fmt.Println(sqlx)
+		_, err := DBH.Exec(sqlx)
 		checkerr(err)
-		riderid, err = res.LastInsertId()
-		checkerr(err)
-		fmt.Printf("New rider inserted %v\n", riderid)
 		if pn == "Y" {
 			loadstats.NewPillions++
 		} else {
 			loadstats.NewRiders++
 		}
 	} else {
-		sqlx := "UPDATE riders SET DateLastActive=? WHERE riderid=?"
-		stmt, err := DBH.Prepare(sqlx)
+		sqlx := "UPDATE riders SET DateLastActive='" + rp.Ridedate + "',Postal_Address=" + pa + ",Postcode='" + p.Postcode + "',Country='" + p.Country + "',Email='" + p.Email + "',Phone='" + p.Phone + "' WHERE riderid=" + fmt.Sprintf("%v", riderid)
+		//fmt.Println(sqlx)
+		_, err := DBH.Exec(sqlx)
 		checkerr(err)
-		defer stmt.Close()
-		_, err = stmt.Exec(rp.Ridedate, riderid)
-		checkerr(err)
-		fmt.Printf("Rider %v updated \n", riderid)
 	}
 	bikeid = getIntegerFromDB(fmt.Sprintf("SELECT bikeid FROM bikes WHERE riderid=%v AND Bike='%v' AND (ifnull(Registration,'')='%v' OR ifnull(Registration,'')='')", riderid, e.Bike, e.BikeReg), 0)
 
