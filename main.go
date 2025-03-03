@@ -12,7 +12,7 @@ import (
 	_ "github.com/mattn/go-sqlite3"
 )
 
-const PROGRAMVERSION = "Rupert v0.1 Copyright © 2025 Bob Stammers"
+const PROGRAMVERSION = "Rupert v1.0 Copyright © 2025 Bob Stammers"
 
 // DBNAME names the database file
 var DBNAME *string = flag.String("db", "ibaukrd.db", "database file")
@@ -68,6 +68,7 @@ func main() {
 	checkerr(err)
 
 	http.HandleFunc("/", show_root)
+	http.HandleFunc("/help", show_help)
 	http.HandleFunc("/rblr", import_rblr)
 	err = http.ListenAndServe(":"+*HTTPPort, nil)
 	checkerr(err)
@@ -76,5 +77,5 @@ func main() {
 func show_root(w http.ResponseWriter, r *http.Request) {
 
 	fmt.Println(`no-op called`)
-	fmt.Fprintf(w, `<p>no-op called</p><p>%v</p>`, r)
+	fmt.Fprintf(w, `<p>Rupert no-op (%v) called - maybe return to <a href="https://ironbutt.co.uk">Ironbutt.co.uk</a> or try <a href="/help">help</a></p>`, r.RequestURI)
 }

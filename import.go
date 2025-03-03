@@ -17,6 +17,8 @@ type RBLR_Route struct {
 	Miles    int
 }
 
+// These codes must match those used by Alys. As of 2024 the routes are bidirectional to minimize
+// certificate reprints so the 'via' contents need not be reorganized.
 var RBLR_Routes = map[string]RBLR_Route{
 	"A-NCW": {"Squires cafe", "Berwick-upon-Tweed, Wick and Fort William", "Squires cafe", "RBLR1000-NC", 1006},
 	"B-NAC": {"Squires cafe", "Berwick-upon-Tweed, Wick and Fort William", "Squires cafe", "RBLR1000-NA", 1006},
@@ -99,6 +101,7 @@ type RBLR_Stats struct {
 
 var loadstats *RBLR_Stats
 
+// Calculate hours:minutes using start and finish times.
 func calc_rblr_ridelength(starttime string, finishtime string) (int, int) {
 
 	const timefmt = "2006-01-02T15:04"
@@ -202,7 +205,7 @@ func transform_rblr_address(p RBLR_Person) string {
 	// SQLite can't handle escaped chars directly, only via
 	// its concatenate function which isn't handled correctly
 	// by Prepare/Exec handlers.
-	const nl = " || ',' || char(13) || "
+	const nl = " || char(13) || char(10) ||"
 	pa := "'" + strings.TrimSpace(p.Address1) + "'"
 	if strings.TrimSpace(p.Address2) != "" {
 		pa += nl + "'" + strings.TrimSpace(p.Address2) + "'"
@@ -278,7 +281,7 @@ func post_rblr_person_updates(e RBLR_Entrant, rp RBLR_Params, isPillion bool) {
 		defer stmt.Close()
 		_, err = stmt.Exec(bikeid, riderid, km, e.Bike, e.BikeReg)
 		checkerr(err)
-		fmt.Printf("New bike inserted %v\n", bikeid)
+		//fmt.Printf("New bike inserted %v\n", bikeid)
 	} else {
 		sqlx := "UPDATE bikes SET KmsOdo=?,Registration=? WHERE riderid=? AND bikeid=? AND ifnull(Registration,'')=''"
 		stmt, err := DBH.Prepare(sqlx)
@@ -286,7 +289,7 @@ func post_rblr_person_updates(e RBLR_Entrant, rp RBLR_Params, isPillion bool) {
 		defer stmt.Close()
 		_, err = stmt.Exec(km, e.BikeReg, riderid, bikeid)
 		checkerr(err)
-		fmt.Printf("Bike %v updated\n", bikeid)
+		//fmt.Printf("Bike %v updated\n", bikeid)
 	}
 	rt, ok := RBLR_Routes[e.Route]
 	if !ok {
@@ -296,7 +299,7 @@ func post_rblr_person_updates(e RBLR_Entrant, rp RBLR_Params, isPillion bool) {
 	dupecheck := fmt.Sprintf("SELECT NameOnCertificate FROM rides WHERE riderid=%v AND DateRideStart='%v' AND IBA_Ride='%v'", riderid, rp.Ridedate, rt.RideName)
 	x := getStringFromDB(dupecheck, "")
 	if x == ridername {
-		fmt.Println("Ride is duplicated")
+		//fmt.Println("Ride is duplicated")
 		return
 	}
 

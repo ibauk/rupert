@@ -1,38 +1,45 @@
 * {
-    margin: 0;
-    padding: 0;
-    box-sizing: border-box;
-    font-family: Verdana, Geneva, Tahoma, sans-serif;
-    font-size: 14pt;
-  }
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+  font-family: Verdana, Geneva, Tahoma, sans-serif;
+  font-size: 14pt;
+}
 
-  h1 {
-    text-align: center;
-    margin: 1em 1em 2em 1em;
-  }
-  p {
-    margin: 1em;
-  }
-  fieldset {
-    padding: 1em;
-    margin: 0 1em;
-  }
+h1 {
+  text-align: center;
+  margin: 1em 1em 2em 1em;
+}
+p {
+  margin: 1em;
+}
+dt {
+  margin: 1em 1em 0.5em 1em;
+  font-weight: bold;
+}
+dd {
+  margin: 0 1em 1em 2em;
+  font-style: italic;
+}
+fieldset {
+  padding: 1em;
+  margin: 0 1em;
+}
 
-  input[type='submit'] {
-    padding: 1em;
-    margin: 1em;
+input[type="submit"] {
+  padding: 1em;
+  margin: 1em;
+}
+.hide {
+  display: none;
+}
+
+@media print {
+  * {
+    background-color: white;
+    color: black;
   }
-  .hide {
+  .noprint {
     display: none;
   }
-  
-  @media print {
-    * {
-      background-color: white;
-      color: black;
-    }
-    .noprint {
-      display: none;
-    }
-  }
-  
+}

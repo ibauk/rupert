@@ -2,6 +2,8 @@ package main
 
 import (
 	_ "embed"
+	"fmt"
+	"net/http"
 )
 
 //go:embed rupert.js
@@ -42,3 +44,23 @@ var loadrblrform = `
 	<input id="submitbutton" disabled type="submit" value="Submit">
 	</form>
 `
+
+var ruperthelp = `
+<p>Rupert provides services to the IBAUK Rides database. Services available include:-</p>
+
+<dl>
+<dt><a href="/rblr">/rblr</a></dt>
+<dd>Update the database with results from the RBLR1000 using the JSON file output from Alys</dd>
+</dl>
+
+`
+
+func show_help(w http.ResponseWriter, r *http.Request) {
+
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+
+	fmt.Fprint(w, htmlheader)
+	fmt.Fprintf(w, `<p>%v</p>`, PROGRAMVERSION)
+	fmt.Fprint(w, ruperthelp)
+
+}
