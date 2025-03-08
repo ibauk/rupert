@@ -1,13 +1,38 @@
 package main
 
 import (
+	"encoding/csv"
 	"encoding/json"
 	"fmt"
 	"math"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 )
+
+// CSV format of Finishers exported from ScoreMaster
+type rally_Entrant struct {
+	RiderName      string
+	PillionName    string
+	Bike           string
+	Placing        int
+	Miles          int
+	Points         int
+	RiderIBA       int
+	PillionIBA     int
+	BikeReg        string
+	Class          int
+	Phone          string
+	Email          string
+	Postcode       string
+	Country        string
+	Postal_Address string
+	RiderRBL       string
+	NoviceRider    string
+	PillionRBL     string
+	NovicePillion  string
+}
 
 type RBLR_Route struct {
 	Start    string
@@ -130,16 +155,54 @@ func calc_rblr_ridelength(starttime string, finishtime string) (int, int) {
 
 }
 
+func import_rally(w http.ResponseWriter, r *http.Request) {
+
+	if r.FormValue("thedata") == "" {
+		load_rally(w)
+		return
+	}
+
+	rallycode := strings.ToUpper(r.FormValue("rallycode"))
+	if rallycode == "" {
+		fmt.Fprint(w, `<p>No rallycode supplied</p>`)
+		return
+	}
+	if getStringFromDB("SELECT RallyTitle FROM rallies WHERE RallyID='"+rallycode+"'", "") == "" {
+		rallydesc := r.FormValue("rallydesc")
+		make_new_rally(rallycode, rallydesc)
+	}
+	yr := r.FormValue("rallyyear")
+	if len(yr) > 2 {
+		yr = yr[2:]
+	}
+	entrants := parse_rally(r)
+
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+
+	fmt.Fprint(w, htmlheader)
+
+	fmt.Fprintf(w, `<h1>Update IBAUK Rides database with %v%v results</h1>`, rallycode, yr)
+
+	DBH.Exec("BEGIN")
+	defer DBH.Exec("COMMIT")
+
+	fmt.Fprint(w, `<p>`)
+	for _, e := range entrants {
+		fmt.Fprintf(w, `%v &nbsp; `, e.RiderName)
+		post_rally_entrant_updates(e, rallycode+yr)
+	}
+
+}
 func import_rblr(w http.ResponseWriter, r *http.Request) {
 
-	if r.FormValue("json") == "" {
-		load_rblr(w, r)
+	if r.FormValue("thedata") == "" {
+		load_rblr(w)
 		return
 	}
 	var rp RBLR_Params
 	rp.Ridedate = r.FormValue("saturday")
 	if rp.Ridedate == "" {
-		fmt.Fprint(w, `{"ok":false,"err":"No Saturday date supplied"}`)
+		fmt.Fprint(w, `<p>No Saturday date supplied</p>`)
 		return
 	}
 	rp.EventDesc = "RBLR 1000('" + rp.Ridedate[2:4] + ")"
@@ -166,7 +229,38 @@ func import_rblr(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, `<p>NCW: <strong>%v</strong>&nbsp;  NAC: <strong>%v</strong>&nbsp;  SCW: <strong>%v</strong>&nbsp;  SAC: <strong>%v</strong>&nbsp;</p>`, stats.Ncw, stats.Nac, stats.Scw, stats.Sac)
 }
 
-func load_rblr(w http.ResponseWriter, r *http.Request) {
+func load_rally(w http.ResponseWriter) {
+
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+
+	fmt.Fprint(w, htmlheader)
+
+	sqlx := "SELECT RallyID,RallyTitle FROM rallies ORDER BY RallyID"
+	options := ""
+
+	rallies, err := DBH.Query(sqlx)
+	checkerr(err)
+	defer rallies.Close()
+	var rally string
+	var title string
+	for rallies.Next() {
+		err = rallies.Scan(&rally, &title)
+		opt := fmt.Sprintf(`<option value="%v">%v</option>`, rally, title)
+		options += opt
+	}
+	const rallyopts = "<!-- options -->"
+	const minyear = "<!-- min -->"
+	const maxyear = "<!-- max -->"
+	const curyear = "<!-- value -->"
+	yr := time.Now().Year()
+	x := strings.Replace(loadrallyform, rallyopts, options, 1)
+	x = strings.Replace(x, curyear, strconv.Itoa(yr), 1)
+	x = strings.Replace(x, maxyear, strconv.Itoa(yr), 1)
+	x = strings.Replace(x, minyear, strconv.Itoa(yr-2), 1)
+	fmt.Fprint(w, x)
+
+}
+func load_rblr(w http.ResponseWriter) {
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 
@@ -175,10 +269,57 @@ func load_rblr(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprint(w, loadrblrform)
 
 }
+
+func parse_rally(r *http.Request) []rally_Entrant {
+
+	cdata := r.FormValue("thedata")
+	if cdata == "" {
+		return []rally_Entrant{}
+	}
+	rdr := csv.NewReader(strings.NewReader(cdata))
+
+	recs, err := rdr.ReadAll()
+	checkerr(err)
+
+	res := make([]rally_Entrant, 0, len(recs))
+
+	skip := true
+	for _, ln := range recs {
+		if skip {
+			skip = false
+			continue
+		}
+		var re rally_Entrant
+		re.RiderName = ln[0]
+		re.PillionName = ln[1]
+		re.Bike = ln[2]
+		re.Placing = intval(ln[3])
+		re.Miles = intval(ln[4])
+		re.Points = intval(ln[5])
+		re.RiderIBA = intval(ln[6])
+		re.PillionIBA = intval(ln[7])
+		re.BikeReg = ln[8]
+		re.Class = intval(ln[9])
+		re.Phone = ln[10]
+		re.Email = ln[11]
+		re.Postcode = ln[12]
+		re.Country = ln[13]
+		re.Postal_Address = ln[14]
+		re.RiderRBL = ln[15]
+		re.NoviceRider = ln[16]
+		re.NovicePillion = ln[17]
+		res = append(res, re)
+		fmt.Printf("0=%v, 1=%v, pa={ %v }\n", ln[0], ln[1], re.Postal_Address)
+
+	}
+
+	return res
+
+}
 func parse_rblr(r *http.Request) []RBLR_Entrant {
 
 	res := make([]RBLR_Entrant, 0)
-	jdata := r.FormValue("json")
+	jdata := r.FormValue("thedata")
 	if jdata == "" {
 		return res
 	}
@@ -189,6 +330,144 @@ func parse_rblr(r *http.Request) []RBLR_Entrant {
 	return rblr.Entrants
 }
 
+func make_new_rally(code string, desc string) {
+
+	sqlx := "INSERT INTO rallies (RallyID,RallyTitle) VALUES(?,?)"
+	stmt, err := DBH.Prepare(sqlx)
+	checkerr(err)
+	defer stmt.Close()
+	_, err = stmt.Exec(code, desc)
+	checkerr(err)
+}
+
+func post_rally_entrant_updates(e rally_Entrant, rc string) {
+
+	post_rally_person_updates(e, rc, false)
+	if e.PillionName != "" {
+		post_rally_person_updates(e, rc, true)
+	}
+}
+
+func post_rally_person_updates(e rally_Entrant, rc string, isPillion bool) {
+
+	var riderid int64
+	var bikeid int64
+
+	// Unique IDs in the Rides database are not autogenerated, we must calculate and supply
+
+	/*
+		type rally_Entrant struct {
+			RiderName      string
+			PillionName    string
+			Bike           string
+			Placing        int
+			Miles          int
+			Points         int
+			RiderIBA       int
+			PillionIBA     int
+			BikeReg        string
+			Class          int
+			Phone          string
+			Email          string
+			Postcode       string
+			Country        string
+			Postal_Address string
+			RiderRBL       string
+			NoviceRider    string
+			PillionRBL     string
+			NovicePillion  string
+		}
+	*/
+
+	var ridername string
+	var iba int
+	var pn string
+	if isPillion {
+		ridername = e.PillionName
+		iba = e.PillionIBA
+		pn = "Y"
+	} else {
+		ridername = e.RiderName
+		iba = e.RiderIBA
+		pn = "N"
+	}
+
+	ad := time.Now().Format("2006-01-02")
+	pa := transform_rally_address(e.Postal_Address)
+
+	if iba > 0 {
+		riderid = getIntegerFromDB("SELECT riderid FROM riders WHERE IBA_Number='"+strconv.Itoa(iba)+"'", 0)
+	}
+	if riderid == 0 {
+		riderid = getIntegerFromDB("SELECT riderid FROM riders WHERE Rider_Name='"+ridername+"'", 0)
+	}
+	if riderid == 0 { // Must create new record
+		riderid = getIntegerFromDB("SELECT max(riderid) FROM riders", 0) + 1
+		sqlx := "INSERT INTO riders (riderid,Rider_Name,IBA_Number,Postal_Address,Postcode,Country,Email,Phone,IsPillion,DateLastActive)"
+		sqlx += "VALUES("
+		sqlx += fmt.Sprintf("%v,'%v','%v',%v,'%v','%v','%v','%v','%v','%v'", riderid, ridername, iba, pa, e.Postcode, e.Country, e.Email, e.Phone, pn, ad)
+		sqlx += ")"
+
+		//fmt.Println(sqlx)
+		_, err := DBH.Exec(sqlx)
+		checkerr(err)
+		if pn == "Y" {
+			loadstats.NewPillions++
+		} else {
+			loadstats.NewRiders++
+		}
+	} else {
+		sqlx := "UPDATE riders SET DateLastActive='" + ad + "',Postal_Address=" + pa + ",Postcode='" + e.Postcode + "',Country='" + e.Country + "',Email='" + e.Email + "',Phone='" + e.Phone + "' WHERE riderid=" + fmt.Sprintf("%v", riderid)
+		//fmt.Println(sqlx)
+		_, err := DBH.Exec(sqlx)
+		checkerr(err)
+	}
+	bikeid = getIntegerFromDB(fmt.Sprintf("SELECT bikeid FROM bikes WHERE riderid=%v AND Bike='%v' AND (ifnull(Registration,'')='%v' OR ifnull(Registration,'')='')", riderid, e.Bike, e.BikeReg), 0)
+
+	// Switch for bike odo is Y=kms, N=miles
+	km := "N"
+	// Switch not available in Finisher export from ScoreMaster
+
+	if bikeid == 0 {
+		bikeid = getIntegerFromDB("SELECT max(bikeid) FROM bikes", 0) + 1
+		sqlx := "INSERT INTO bikes (bikeid,riderid,KmsOdo,Bike,Registration) VALUES(?,?,?,?,?)"
+		stmt, err := DBH.Prepare(sqlx)
+		checkerr(err)
+		defer stmt.Close()
+		_, err = stmt.Exec(bikeid, riderid, km, e.Bike, e.BikeReg)
+		checkerr(err)
+		//fmt.Printf("New bike inserted %v\n", bikeid)
+	} else {
+		sqlx := "UPDATE bikes SET KmsOdo=?,Registration=? WHERE riderid=? AND bikeid=? AND ifnull(Registration,'')=''"
+		stmt, err := DBH.Prepare(sqlx)
+		checkerr(err)
+		defer stmt.Close()
+		_, err = stmt.Exec(km, e.BikeReg, riderid, bikeid)
+		checkerr(err)
+		//fmt.Printf("Bike %v updated\n", bikeid)
+	}
+
+	dupecheck := fmt.Sprintf("SELECT recid FROM rallyresults WHERE riderid=%v AND bikeid=%v AND RallyID='%v'", riderid, bikeid, rc)
+	x := getIntegerFromDB(dupecheck, 0)
+	if x > 0 {
+		//fmt.Println("Ride is duplicated")
+		return
+	}
+
+	uri := getIntegerFromDB("SELECT max(recid) FROM rallyresults", 0) + 1
+	sqlx := "INSERT INTO rallyresults (recid,RallyID,FinishPosition,riderid,bikeid,RallyMiles,RallyPoints,Country)"
+	sqlx += "VALUES(?,?,?,?,?,?,?,?)"
+	//fmt.Println(sqlx)
+	stmt, err := DBH.Prepare(sqlx)
+	checkerr(err)
+	//fmt.Println("All good")
+	defer stmt.Close()
+	_, err = stmt.Exec(uri, rc, e.Placing, riderid, bikeid, e.Miles, e.Points, e.Country)
+	checkerr(err)
+	loadstats.NewRides++
+
+}
+
 // This is where database updates are executed for successful RBLR rides
 func post_rblr_entrant_updates(e RBLR_Entrant, rp RBLR_Params) {
 
@@ -196,6 +475,34 @@ func post_rblr_entrant_updates(e RBLR_Entrant, rp RBLR_Params) {
 	if e.Pillion.First != "" || e.Pillion.Last != "" || e.Pillion.IBA != "" {
 		post_rblr_person_updates(e, rp, true)
 	}
+
+}
+
+func transform_rally_address(address string) string {
+
+	// We want to store the address over multiple lines BUT
+	// SQLite can't handle escaped chars directly, only via
+	// its concatenate function which isn't handled correctly
+	// by Prepare/Exec handlers.
+
+	const nl = " || char(13) || char(10) ||"
+	pax := strings.Split(address, " | ")
+
+	pa := ""
+	if len(pax) > 1 {
+		pa = "'" + address + "'"
+		return pa
+	}
+
+	for ix := 0; ix < len(pax); ix++ {
+		if ix > 0 {
+			pa += nl
+		}
+		pa += "'" + strings.TrimSpace(pax[ix]) + "'"
+
+	}
+
+	return pa
 
 }
 

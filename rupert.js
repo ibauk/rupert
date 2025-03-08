@@ -1,12 +1,26 @@
 "use strict";
 
+function chooseRally(obj) {
+  console.log("Choosing Rally");
+  let sel = obj;
+  let code = document.getElementById("rallycode");
+  let desc = document.getElementById("rallydesc");
+
+  console.log("Got the objects");
+  code.value = sel.options[sel.selectedIndex].value;
+  desc.value = sel.options[sel.selectedIndex].innerText;
+  code.readOnly = code.value != "";
+  desc.readOnly = code.readOnly;
+
+  enableImportLoad(obj);
+}
+
 function enableImportLoad(obj) {
   let ldr = document.getElementById("submitbutton");
-  if (ldr) ldr.disabled = false;
 
-  let csv = document.getElementById("jsonfile");
+  let csv = document.getElementById("thefile");
   if (!csv) return;
-  let data = document.getElementById("json");
+  let data = document.getElementById("thedata");
   if (!data) return;
   const file = csv.files[0];
   console.log("File is " + file);
@@ -16,14 +30,11 @@ function enableImportLoad(obj) {
       const content = e.target.result;
       data.value = content;
 
-      let ok = RBLRCSVRE.test(content);
-      console.log("ok == " + ok);
-      if (!ok) {
-        console.log("no match");
-        return;
+      if (ldr) {
+        ldr.disabled = false;
+        ldr.classList.add("btn")
+        ldr.classList.remove("hide");
       }
-
-      if (ldr) ldr.classList.remove("hide");
     };
     reader.readAsText(file);
   }

@@ -55,6 +55,19 @@ func getStringFromDB(sqlx string, defval string) string {
 	return defval
 }
 
+func intval(x string) int {
+
+	res := 0
+	for ix := 0; ix < len(x); ix++ {
+		c := x[ix]
+		if c < '0' || c > '9' {
+			break
+		}
+		res = res*10 + (int(c) - int('0'))
+	}
+	return res
+}
+
 func main() {
 
 	fmt.Println(PROGRAMVERSION)
@@ -69,6 +82,7 @@ func main() {
 
 	http.HandleFunc("/", show_root)
 	http.HandleFunc("/help", show_help)
+	http.HandleFunc("/rally", import_rally)
 	http.HandleFunc("/rblr", import_rblr)
 	err = http.ListenAndServe(":"+*HTTPPort, nil)
 	checkerr(err)
