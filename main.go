@@ -74,7 +74,8 @@ func main() {
 	flag.Parse()
 
 	dbx, _ := filepath.Abs(*DBNAME)
-	fmt.Printf("Using %v\n\n", dbx)
+	fmt.Printf("Using %v\n", dbx)
+	fmt.Printf("Listening on port %v\n\n", *HTTPPort)
 
 	var err error
 	DBH, err = sql.Open("sqlite3", dbx)

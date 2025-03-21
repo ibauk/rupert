@@ -83,6 +83,8 @@ var ruperthelp = `
 <dl>
 <dt><a href="/rblr">/rblr</a></dt>
 <dd>Update the database with results from the RBLR1000 using the JSON file output from Alys</dd>
+<dt><a href="/rally">rally</a></dt>
+<dd>Update the database with results from a rally  using the CSV of Finisher details from ScoreMaster</dd>
 </dl>
 
 `

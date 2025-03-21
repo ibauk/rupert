@@ -25,7 +25,9 @@ fieldset {
   padding: 1em;
   margin: 0 1em;
 }
-
+ul {
+  margin: 2em;
+}
 .rallycode {
   width: 6em;
   text-transform: uppercase;
