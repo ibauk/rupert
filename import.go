@@ -11,6 +11,10 @@ import (
 	"time"
 )
 
+// Test for EntrantStatus
+const Finisher = 8
+const LateFinisher = 10
+
 // CSV format of Finishers exported from ScoreMaster
 type rally_Entrant struct {
 	RiderName      string
@@ -49,6 +53,17 @@ var RBLR_Routes = map[string]RBLR_Route{
 	"B-NAC": {"Squires cafe", "Berwick-upon-Tweed, Wick and Fort William", "Squires cafe", "RBLR1000-NA", 1006},
 	"C-SCW": {"Squires cafe", "Bangor, Barnstaple, Andover and Lowestoft", "Squires cafe", "RBLR1000-SC", 1015},
 	"D-SAC": {"Squires cafe", "Bangor, Barnstaple, Andover and Lowestoft", "Squires cafe", "RBLR1000-SA", 1015},
+	"E-5CW": {"Squires cafe", "Workington, Berwick-upon-Tweed and Beverley", "Squires cafe", "RBLR1000-5C", 504},
+	"E-5AC": {"Squires cafe", "Workington, Berwick-upon-Tweed and Beverley", "Squires cafe", "RBLR1000-5A", 504},
+}
+
+var RBLR_Lates = map[string]RBLR_Route{
+	"A-NCW": {"Squires cafe", "Berwick-upon-Tweed, Wick and Fort William", "Squires cafe", "RBLR1000+NC", 1006},
+	"B-NAC": {"Squires cafe", "Berwick-upon-Tweed, Wick and Fort William", "Squires cafe", "RBLR1000+NA", 1006},
+	"C-SCW": {"Squires cafe", "Bangor, Barnstaple, Andover and Lowestoft", "Squires cafe", "RBLR1000+SC", 1015},
+	"D-SAC": {"Squires cafe", "Bangor, Barnstaple, Andover and Lowestoft", "Squires cafe", "RBLR1000+SA", 1015},
+	"E-5CW": {"Squires cafe", "Workington, Berwick-upon-Tweed and Beverley", "Squires cafe", "RBLR1000+5C", 504},
+	"E-5AC": {"Squires cafe", "Workington, Berwick-upon-Tweed and Beverley", "Squires cafe", "RBLR1000+5A", 504},
 }
 
 type RBLR_Person = struct {
@@ -122,9 +137,12 @@ type Stats struct {
 	Nac         int
 	Scw         int
 	Sac         int
+	Cw5         int
+	Ac5         int
 }
 
 var loadstats *Stats
+var newIBAs []string
 
 // Calculate hours:minutes using start and finish times.
 func calc_rblr_ridelength(starttime string, finishtime string) (int, int) {
@@ -218,8 +236,10 @@ func import_rblr(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprint(w, `<p>No Saturday date supplied</p>`)
 		return
 	}
-	rp.EventDesc = "RBLR 1000('" + rp.Ridedate[2:4] + ")"
+	rp.EventDesc = "RBLR 1000 ('" + rp.Ridedate[2:4] + ")"
+
 	entrants := parse_rblr(r)
+
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 
 	fmt.Fprint(w, htmlheader)
@@ -233,14 +253,26 @@ func import_rblr(w http.ResponseWriter, r *http.Request) {
 	loadstats = &stats
 	fmt.Fprint(w, `<p>`)
 	for _, e := range entrants {
-		fmt.Fprintf(w, `%v &nbsp; `, e.Rider.Last+",&nbsp;"+e.Rider.First)
+
+		// The file includes Finishers and Late Finishers, 1000 mile routes and 500 mile routes
+		// but for now we're only interested in IBA qualified results
+		IBAFinisher := e.EntrantStatus == Finisher && RBLR_Routes[e.Route].Miles >= 1000
+		if !IBAFinisher {
+			continue
+		}
+		//fmt.Fprintf(w, `%v &nbsp; `, e.Rider.Last+",&nbsp;"+e.Rider.First)
 		post_rblr_entrant_updates(e, rp)
 	}
 	fmt.Fprintf(w, `</p><p><strong>%v</strong> rides added to the database</p>`, stats.NewRides)
 
 	fmt.Fprintf(w, `<p>Number of new riders <strong>%v</strong>, number of new pillions <strong>%v</strong></p>`, stats.NewRiders, stats.NewPillions)
-	fmt.Fprintf(w, `<p>NCW: <strong>%v</strong>&nbsp;  NAC: <strong>%v</strong>&nbsp;  SCW: <strong>%v</strong>&nbsp;  SAC: <strong>%v</strong>&nbsp;</p>`, stats.Ncw, stats.Nac, stats.Scw, stats.Sac)
+	fmt.Fprintf(w, `<p>NCW: <strong>%v</strong>&nbsp;  NAC: <strong>%v</strong>&nbsp;  SCW: <strong>%v</strong>&nbsp;  SAC: <strong>%v</strong>&nbsp; </p>`, stats.Ncw, stats.Nac, stats.Scw, stats.Sac)
 
+	fmt.Fprint(w, `<p>New IBA members</p><ol>`)
+	for _, x := range newIBAs {
+		fmt.Fprintf(w, `<li>%v</li>`, x)
+	}
+	fmt.Fprint(w, `</ol>`)
 	fmt.Fprint(w, `<p><a href="https://rdb.ironbutt.co.uk">Return to Rides database</a>`)
 
 }
@@ -400,7 +432,7 @@ func post_rally_person_updates(e rally_Entrant, rc string, isPillion bool) {
 		sqlx += "VALUES("
 		sqlx += fmt.Sprintf("%v,'%v','%v',%v,'%v','%v','%v','%v','%v','%v'", riderid, ridername, iba, pa, e.Postcode, e.Country, e.Email, e.Phone, pn, ad)
 		sqlx += ")"
-
+		newIBAs = append(newIBAs, ridername)
 		//fmt.Println(sqlx)
 		_, err := DBH.Exec(sqlx)
 		checkerr(err)
@@ -506,15 +538,15 @@ func transform_rblr_address(p RBLR_Person) string {
 	// its concatenate function which isn't handled correctly
 	// by Prepare/Exec handlers.
 	const nl = " || char(13) || char(10) ||"
-	pa := "'" + strings.TrimSpace(p.Address1) + "'"
+	pa := "'" + safesql(p.Address1) + "'"
 	if strings.TrimSpace(p.Address2) != "" {
-		pa += nl + "'" + strings.TrimSpace(p.Address2) + "'"
+		pa += nl + "'" + safesql(p.Address2) + "'"
 	}
 	if strings.TrimSpace(p.Town) != "" {
-		pa += nl + "'" + strings.TrimSpace(p.Town) + "'"
+		pa += nl + "'" + safesql(p.Town) + "'"
 	}
 	if strings.TrimSpace(p.County) != "" {
-		pa += nl + "'" + strings.TrimSpace(p.County) + "'"
+		pa += nl + "'" + safesql(p.County) + "'"
 	}
 
 	return pa
@@ -536,6 +568,7 @@ func post_rblr_person_updates(e RBLR_Entrant, rp RBLR_Params, isPillion bool) {
 	}
 	ridername := p.First + " " + p.Last
 
+	//fmt.Println(ridername)
 	pa := transform_rblr_address(p)
 
 	if strings.TrimSpace(p.IBA) != "" {
@@ -546,10 +579,16 @@ func post_rblr_person_updates(e RBLR_Entrant, rp RBLR_Params, isPillion bool) {
 	}
 	if riderid == 0 { // Must create new record
 		riderid = getIntegerFromDB("SELECT max(riderid) FROM riders", 0) + 1
-		sqlx := "INSERT INTO riders (riderid,Rider_Name,IBA_Number,Postal_Address,Postcode,Country,Email,Phone,IsPillion,DateLastActive)"
+		sqlx := "INSERT INTO riders (riderid,Rider_Name,IBA_Number,Postal_Address,Postcode,Country,Email,Phone,IsPillion,DateLastActive,Address1,Address2,Town,County,Rider_First,Rider_Last)"
 		sqlx += "VALUES("
-		sqlx += fmt.Sprintf("%v,'%v','%v',%v,'%v','%v','%v','%v','%v','%v'", riderid, ridername, p.IBA, pa, p.Postcode, p.Country, p.Email, p.Phone, pn, rp.Ridedate)
+		sqlx += fmt.Sprintf("%v,'%v','%v',%v,'%v','%v','%v','%v','%v','%v','%v','%v','%v','%v','%v','%v'", riderid, ridername, p.IBA, pa, p.Postcode, p.Country, p.Email, p.Phone, pn, rp.Ridedate, safesql(p.Address1), safesql(p.Address2), safesql(p.Town), safesql(p.County), safesql(p.First), safesql(p.Last))
 		sqlx += ")"
+
+		IBAFinisher := e.EntrantStatus == Finisher && RBLR_Routes[e.Route].Miles >= 1000
+
+		if IBAFinisher {
+			newIBAs = append(newIBAs, ridername)
+		}
 
 		//fmt.Println(sqlx)
 		_, err := DBH.Exec(sqlx)
@@ -560,7 +599,7 @@ func post_rblr_person_updates(e RBLR_Entrant, rp RBLR_Params, isPillion bool) {
 			loadstats.NewRiders++
 		}
 	} else {
-		sqlx := "UPDATE riders SET DateLastActive='" + rp.Ridedate + "',Postal_Address=" + pa + ",Postcode='" + p.Postcode + "',Country='" + p.Country + "',Email='" + p.Email + "',Phone='" + p.Phone + "' WHERE riderid=" + fmt.Sprintf("%v", riderid)
+		sqlx := "UPDATE riders SET DateLastActive='" + rp.Ridedate + "',Postal_Address=" + pa + ",Postcode='" + p.Postcode + "',Country='" + p.Country + "',Email='" + p.Email + "',Phone='" + p.Phone + "', Address1='" + safesql(p.Address1) + "',Address2='" + safesql(p.Address2) + "',Town='" + safesql(p.Town) + "',County='" + safesql(p.County) + "',Rider_First='" + safesql(p.First) + "',Rider_Last='" + safesql(p.Last) + "' WHERE riderid=" + fmt.Sprintf("%v", riderid)
 		//fmt.Println(sqlx)
 		_, err := DBH.Exec(sqlx)
 		checkerr(err)
@@ -595,6 +634,13 @@ func post_rblr_person_updates(e RBLR_Entrant, rp RBLR_Params, isPillion bool) {
 	if !ok {
 		rt = RBLR_Routes["A-NCW"]
 	}
+	if e.EntrantStatus != Finisher {
+		rt, ok = RBLR_Lates[e.Route]
+		if !ok {
+			rt = RBLR_Lates["A-NCW"]
+		}
+
+	}
 
 	dupecheck := fmt.Sprintf("SELECT NameOnCertificate FROM rides WHERE riderid=%v AND DateRideStart='%v' AND IBA_Ride='%v'", riderid, rp.Ridedate, rt.RideName)
 	x := getStringFromDB(dupecheck, "")
@@ -612,8 +658,15 @@ func post_rblr_person_updates(e RBLR_Entrant, rp RBLR_Params, isPillion bool) {
 	checkerr(err)
 	//fmt.Println("All good")
 	defer stmt.Close()
+
+	showRoH := "Y"
+	IBAFinisher := e.EntrantStatus == Finisher && rt.Miles >= 1000
+	if !IBAFinisher {
+		showRoH = "N"
+	}
+
 	hrs, mins := calc_rblr_ridelength(e.StartTime, e.FinishTime)
-	_, err = stmt.Exec(uri, riderid, ridername, rp.Ridedate, rp.Ridedate, rt.RideName, pn, rp.EventDesc, km, rt.Miles, bikeid, rt.Start, rt.Finish, rt.Via, rp.Ridedate, "RBLR", rp.Ridedate, rp.Ridedate, rideid, rp.Ridedate, rp.Ridedate, "Y", e.OdoStart, e.OdoFinish, e.StartTime, e.FinishTime, hrs, mins, e.Notes)
+	_, err = stmt.Exec(uri, riderid, ridername, rp.Ridedate, rp.Ridedate, rt.RideName, pn, rp.EventDesc, km, rt.Miles, bikeid, rt.Start, rt.Finish, rt.Via, rp.Ridedate, "RBLR", rp.Ridedate, rp.Ridedate, rideid, rp.Ridedate, rp.Ridedate, showRoH, e.OdoStart, e.OdoFinish, e.StartTime, e.FinishTime, hrs, mins, e.Notes)
 	checkerr(err)
 	loadstats.NewRides++
 	switch e.Route {
@@ -625,6 +678,15 @@ func post_rblr_person_updates(e RBLR_Entrant, rp RBLR_Params, isPillion bool) {
 		loadstats.Scw++
 	case "D-SAC":
 		loadstats.Sac++
+	case "E-5CW":
+		loadstats.Cw5++
+	case "F-5AC":
+		loadstats.Ac5++
 	}
 
+}
+
+func safesql(x string) string {
+
+	return strings.ReplaceAll(strings.TrimSpace(x), "'", "''")
 }
