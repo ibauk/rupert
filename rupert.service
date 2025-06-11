@@ -1,0 +1,21 @@
+# rupert.service
+#
+# Rupert systemd service descriptor for Debian/Ubuntu Linux servers
+#
+# Amend the ExecStart line as you see fit then install this file
+# in /etc/systemd/system and issue 'systemctl daemon-reload' and
+# 'systemctl enable rupert.service' commands
+#
+
+
+[Unit]
+Description=IBAUK Rupert server
+After=network.target
+
+[Service]
+Type=simple
+Restart=on-success
+ExecStart=/usr/local/bin/rupert -port 1080 -db /var/www/html/rd/ibaukrd.db
+
+[Install]
+WantedBy=multi-user.target
